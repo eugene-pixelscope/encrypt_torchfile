@@ -1,2 +1,1 @@
-cryptography
-argon2-cffi
+packaging

@@ -1,5 +1,6 @@
 # custom
 model_file
+extras
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

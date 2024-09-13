@@ -1,8 +1,6 @@
 import os
-import copy
 import torch
 import torch.nn as nn
-from torch.nn.parallel.data_parallel import DataParallel
 
 
 class SampleModel(nn.Module):
@@ -22,33 +20,32 @@ def make_folder(folder_name):
         os.makedirs(folder_name)
 
 
-def save_model(model, optimizer):
-    model_dir = os.path.join('..', 'model_file')
-    make_folder(model_dir)
-    out = os.path.join(model_dir, 'sample_model.tar')
-    state = {'net': model.state_dict(), 'optimizer': optimizer.state_dict()}
-    torch.save(state, out)
-
-
-def load_model(net, checkpoint):
-    # state_dict = OrderedDict()
-    state_dict = copy.deepcopy(net.state_dict())
-    for k, v in checkpoint['net'].items():
-        if 'module' in k:
-            name = k[7:]  # remove 'module.' of DataParallel/DistributedDataParallel
-        else:
-            name = k
-        state_dict[name] = v
-    # model load
-    net.load_state_dict(state_dict)
-    return net
-
-
 if __name__ == '__main__':
-    model = SampleModel()
-    model = DataParallel(model)
+    model = SampleModel().eval().cuda()
+
+    model_file_name = 'sample_model.pth'
     # warm-up
-    out = model(torch.randn(1, 2))
-    print(out.shape)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    save_model(model, optimizer)
+    x = torch.randn(1, 1, 2).cuda()
+    out = model(x)
+    torch.save(model.state_dict(), os.path.join('..', 'model_file', model_file_name))
+
+    # torch2trt
+    from torch2trt import torch2trt, TRTModule
+    trt_model_file_name = 'sample_model_trt.pt'
+    model_trt = torch2trt(model, [x])
+    out_trt = model_trt(x)
+    torch.save(model_trt.state_dict(), os.path.join('..', 'model_file', trt_model_file_name))
+    del model
+    del model_trt
+
+    # check trt_model
+    ## load model
+    state_dict = torch.load(os.path.join('..', 'model_file', model_file_name), weights_only=False)
+    model = SampleModel().eval().cuda()
+    model.load_state_dict(state_dict)
+
+    ## load trt_model
+    state_trt_dict = torch.load(os.path.join('..', 'model_file', trt_model_file_name), weights_only=False)
+    model_trt = TRTModule()
+    model_trt.load_state_dict(state_trt_dict)
+    print(f'trt-converted error: {torch.max(model(x) - model_trt(x)).detach().cpu().numpy()}')
